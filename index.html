@@ -42,108 +42,97 @@
     <div id="chat" class="chat" aria-live="polite" aria-relevant="additions"></div>
 
     <form id="form">
-      <div class="row">
-        <input id="name" name="name" placeholder="Nome" autocomplete="given-name" required />
-        <input id="surname" name="surname" placeholder="Sobrenome" autocomplete="family-name" required />
-      </div>
-      <input id="code" name="code" placeholder="Código de matrícula (Ex: C123456)" autocomplete="off" />
-      <textarea id="input" placeholder="Digite sua pergunta..." autocomplete="off"></textarea>
-      <button id="send" class="send" type="submit">Enviar</button>
-    </form>
-    <div class="hint"></div>
-  </div>
-
+  <input id="code" name="code" placeholder="Código de matrícula (Ex: C123456)" autocomplete="off" required />
+  <textarea id="input" placeholder="Digite sua pergunta..." autocomplete="off"></textarea>
+  <button id="send" class="send" type="submit">Enviar</button>
+</form>
+<div class="hint"></div>
+</div>
   <script>
     const API_URL = 'https://7f9ab90dac8f.ngrok-free.app/webhook/chat-econometria';
 
-    let sessionId = localStorage.getItem('sessionId') || genUUID();
-    const chatEl   = document.getElementById('chat');
-    const formEl   = document.getElementById('form');
-    const inputEl  = document.getElementById('input');
-    const sendBtn  = document.getElementById('send');
-    const newBtn   = document.getElementById('newChat');
-    const nameEl   = document.getElementById('name');
-    const surnameEl= document.getElementById('surname');
-    const codeEl   = document.getElementById('code');
+let sessionId = localStorage.getItem('sessionId') || genUUID();
+const chatEl   = document.getElementById('chat');
+const formEl   = document.getElementById('form');
+const inputEl  = document.getElementById('input');
+const sendBtn  = document.getElementById('send');
+const newBtn   = document.getElementById('newChat');
+const codeEl   = document.getElementById('code');
 
-    // Prefill de localStorage
-    nameEl.value    = localStorage.getItem('name') || '';
-    surnameEl.value = localStorage.getItem('surname') || '';
-    codeEl.value    = localStorage.getItem('code') || '';
+// Prefill do código de matrícula
+codeEl.value = localStorage.getItem('code') || '';
+codeEl.addEventListener('change', () => {
+  localStorage.setItem('code', codeEl.value.trim());
+});
 
-    [nameEl,surnameEl,codeEl].forEach(el => {
-      el.addEventListener('change', () => {
-        localStorage.setItem(el.id, el.value.trim());
-      });
+newBtn.addEventListener('click', () => {
+  sessionId = genUUID();
+  localStorage.setItem('sessionId', sessionId);
+  chatEl.innerHTML = '';
+  inputEl.value = '';
+  inputEl.focus();
+});
+
+formEl.addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const text = inputEl.value.trim();
+  if (!text) return;
+  if (!codeEl.value.trim()) {
+    appendBot('Por favor, insira seu código de matrícula para continuar 🙂');
+    return;
+  }
+
+  appendUser(text);
+  inputEl.value = '';
+  inputEl.style.height = '52px';
+
+  const stopTyping = showTyping();
+  sendBtn.disabled = true;
+  try {
+    const payload = {
+      sessionId,
+      message: text,
+      code: codeEl.value.trim()
+    };
+    const res = await fetch(API_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
     });
 
-    newBtn.addEventListener('click', () => {
-      sessionId = genUUID();
+    if (!res.ok) {
+      const err = await safeJson(res);
+      appendBot(`Erro ${res.status}: ${err?.error || 'Falha na requisição.'}`);
+      return;
+    }
+    const data = await res.json();
+    if (data.sessionId && data.sessionId !== sessionId) {
+      sessionId = data.sessionId;
       localStorage.setItem('sessionId', sessionId);
-      chatEl.innerHTML = '';
-      inputEl.value = '';
-      inputEl.focus();
-    });
+    }
+    appendBot(data.reply || '(sem resposta do modelo)');
+  } catch (err) {
+    appendBot('Não consegui falar com o servidor. Verifique a URL do webhook e o CORS.');
+  } finally {
+    stopTyping();
+    sendBtn.disabled = false;
+    scrollToBottom();
+  }
+});
 
-    formEl.addEventListener('submit', async (e) => {
-      e.preventDefault();
-      const text = inputEl.value.trim();
-      if (!text) return;
-      if (!nameEl.value.trim() || !surnameEl.value.trim()) {
-        appendBot('Por favor, insira nome e sobrenome para continuar 🙂');
-        return;
-      }
+// 🔹 Corrige o comportamento do Enter
+inputEl.addEventListener('keydown', (e) => {
+  // Enter envia; Shift+Enter faz nova linha
+  if (e.key === 'Enter' && !e.shiftKey) {
+    e.preventDefault();
+    formEl.requestSubmit(); // envia o form corretamente
+  }
+});
 
-      appendUser(text);
-      inputEl.value = '';
-      inputEl.style.height = '52px';
-
-      const stopTyping = showTyping();
-      sendBtn.disabled = true;
-      try {
-        const payload = {
-          sessionId,
-          message: text,
-          name: nameEl.value.trim(),
-          surname: surnameEl.value.trim(),
-          code: codeEl.value.trim()
-        };
-        const res = await fetch(API_URL, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(payload)
-        });
-
-        if (!res.ok) {
-          const err = await safeJson(res);
-          appendBot(`Erro ${res.status}: ${err?.error || 'Falha na requisição.'}`);
-          return;
-        }
-        const data = await res.json(); // { reply, sessionId }
-        if (data.sessionId && data.sessionId !== sessionId) {
-          sessionId = data.sessionId;
-        }
-        appendBot(data.reply || '(sem resposta do modelo)');
-      } catch (err) {
-        appendBot('Não consegui falar com o servidor. Verifique a URL do webhook e o CORS.');
-      } finally {
-        stopTyping();
-        sendBtn.disabled = false;
-        scrollToBottom();
-      }
-    });
-
-    inputEl.addEventListener('keydown', (e) => {
-      if (e.key === 'Enter' && !e.shiftKey) {
-        e.preventDefault();
-        formEl.dispatchEvent(new Event('submit', { cancelable: true, bubbles: true }));
-      }
-    });
-
-    inputEl.addEventListener('input', () => {
-      inputEl.style.height = '52px';
-      inputEl.style.height = Math.min(inputEl.scrollHeight, 160) + 'px';
-    });
+inputEl.addEventListener('input', () => {
+  inputEl.style.height = '52px';
+  inputEl.style.height = Math.min(inputEl.scrollHeight, 160) + 'px';
+});
 
     function appendUser(text) {
       const el = document.createElement('div');
